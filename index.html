@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+  <title>ICMR Smart Navigation</title>
+
+  <!-- MindAR + A-Frame — correct CDN links -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    :root{
+      --blue:#003580; --blue2:#0057B7; --green:#00C49A;
+      --yellow:#FFAA00; --white:#fff; --surface:#F0F4FF;
+      --text:#1A1A2E; --muted:#6B7A99;
+    }
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--surface);height:100dvh;overflow:hidden;}
+
+    /* ── screens ── */
+    .screen{display:none;height:100dvh;flex-direction:column;}
+    .screen.active{display:flex;}
+
+    /* ── HOME ── */
+    #s-home{background:linear-gradient(160deg,var(--blue),var(--blue2));align-items:center;}
+    .home-top{width:100%;padding:52px 28px 28px;text-align:center;}
+    .logo-ring{width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,.15);
+      display:flex;align-items:center;justify-content:center;margin:0 auto 14px;
+      border:2px solid rgba(255,255,255,.3);}
+    .logo-ring svg{width:38px;height:38px;}
+    .home-top h1{font-size:22px;font-weight:700;color:#fff;}
+    .home-top p{font-size:13px;color:rgba(255,255,255,.7);margin-top:4px;}
+    .home-card{background:#fff;border-radius:28px 28px 0 0;flex:1;width:100%;
+      padding:28px 22px;overflow-y:auto;}
+    .home-card h2{font-size:17px;font-weight:600;color:var(--text);margin-bottom:4px;}
+    .card-sub{font-size:13px;color:var(--muted);margin-bottom:20px;}
+    .dest-btn{background:var(--surface);border:2px solid transparent;border-radius:16px;
+      padding:18px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;
+      transition:all .2s;margin-bottom:10px;-webkit-tap-highlight-color:transparent;width:100%;}
+    .dest-btn:active{transform:scale(.97);border-color:var(--blue2);background:#e8f0ff;}
+    .dest-icon{width:46px;height:46px;border-radius:13px;
+      background:linear-gradient(135deg,var(--blue),var(--blue2));
+      display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .dest-icon svg{width:24px;height:24px;}
+    .dest-info{flex:1;text-align:left;}
+    .dest-name{font-size:15px;font-weight:600;color:var(--text);}
+    .dest-room{font-size:12px;color:var(--muted);margin-top:2px;}
+    .dest-chevron{font-size:20px;color:var(--muted);}
+    .tip-box{margin-top:20px;padding:14px;background:#FFF8E7;border-radius:12px;
+      border-left:4px solid var(--yellow);font-size:12.5px;color:#7A5900;line-height:1.5;}
+
+    /* ── LOADING ── */
+    #s-loading{background:var(--blue);align-items:center;justify-content:center;
+      gap:20px;text-align:center;padding:40px;}
+    .spinner{width:60px;height:60px;border:5px solid rgba(255,255,255,.2);
+      border-top-color:var(--green);border-radius:50%;animation:spin 1s linear infinite;}
+    @keyframes spin{to{transform:rotate(360deg);}}
+    #s-loading h2{font-size:20px;font-weight:700;color:#fff;}
+    #s-loading p{font-size:14px;color:rgba(255,255,255,.7);max-width:280px;line-height:1.5;}
+
+    /* ── AR SCENE WRAPPER ── */
+    #s-ar{position:relative;background:#000;}
+    #s-ar a-scene{position:absolute;inset:0;width:100%;height:100%;}
+
+    /* HUD overlay sits above the A-Frame canvas */
+    #hud{position:absolute;inset:0;pointer-events:none;z-index:999;}
+
+    /* Top instruction banner */
+    #hud-top{position:absolute;top:0;left:0;right:0;padding:42px 18px 18px;
+      background:linear-gradient(to bottom,rgba(0,0,0,.72) 0%,transparent 100%);
+      pointer-events:none;}
+    #step-label{font-size:11px;font-weight:700;color:rgba(255,255,255,.6);
+      text-transform:uppercase;letter-spacing:1.2px;margin-bottom:4px;}
+    #step-instr{font-size:19px;font-weight:800;color:#fff;line-height:1.25;}
+    #dist-pill{display:inline-flex;align-items:center;gap:6px;margin-top:8px;
+      background:rgba(0,196,154,.2);border:1px solid rgba(0,196,154,.5);
+      border-radius:20px;padding:4px 12px;font-size:13px;font-weight:600;color:var(--green);}
+
+    /* Bottom scan prompt */
+    #hud-bottom{position:absolute;bottom:0;left:0;right:0;padding:18px 22px 36px;
+      background:linear-gradient(to top,rgba(0,0,0,.75) 0%,transparent 100%);
+      pointer-events:none;}
+    #scan-prompt{background:rgba(0,53,128,.85);border:1.5px solid rgba(255,255,255,.25);
+      border-radius:14px;padding:14px 16px;text-align:center;}
+    #scan-prompt p{font-size:14px;font-weight:600;color:#fff;line-height:1.4;}
+    #scan-prompt span{font-size:12px;color:rgba(255,255,255,.65);}
+
+    /* Detected flash banner */
+    #detect-flash{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+      background:rgba(0,196,154,.92);border-radius:16px;padding:14px 28px;
+      text-align:center;opacity:0;transition:opacity .3s;pointer-events:none;}
+    #detect-flash p{font-size:18px;font-weight:800;color:#fff;}
+    #detect-flash span{font-size:13px;color:rgba(255,255,255,.85);}
+    #detect-flash.show{opacity:1;}
+
+    /* Progress dots */
+    #prog-dots{display:flex;gap:6px;justify-content:center;margin-bottom:12px;}
+    .dot{width:8px;height:8px;border-radius:4px;background:rgba(255,255,255,.3);transition:all .3s;}
+    .dot.active{width:24px;background:var(--green);}
+    .dot.done{background:rgba(0,196,154,.5);}
+
+    /* ── ARRIVED ── */
+    #s-arrived{background:linear-gradient(160deg,#003580,#005a9e);
+      align-items:center;justify-content:center;padding:40px 28px;text-align:center;gap:14px;}
+    .arrived-icon{width:100px;height:100px;border-radius:50%;background:rgba(0,196,154,.2);
+      display:flex;align-items:center;justify-content:center;
+      border:3px solid var(--green);margin-bottom:6px;}
+    .arrived-icon svg{width:52px;height:52px;}
+    #s-arrived h2{font-size:26px;font-weight:800;color:#fff;}
+    .arr-name{font-size:19px;color:var(--green);font-weight:700;margin-top:4px;}
+    .arr-room{font-size:15px;color:rgba(255,255,255,.8);font-weight:500;margin-top:2px;}
+    .arr-sub{font-size:14px;color:rgba(255,255,255,.65);line-height:1.5;margin-top:6px;}
+    .btn-restart{margin-top:18px;background:rgba(255,255,255,.12);color:#fff;
+      border:2px solid rgba(255,255,255,.25);border-radius:14px;
+      padding:14px 32px;font-size:15px;font-weight:600;cursor:pointer;}
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════ -->
+<!-- SCREEN 1 — HOME / DESTINATION  -->
+<!-- ═══════════════════════════════ -->
+<div id="s-home" class="screen active">
+  <div class="home-top">
+    <div class="logo-ring">
+      <svg viewBox="0 0 38 38" fill="none">
+        <circle cx="19" cy="19" r="15" stroke="white" stroke-width="2"/>
+        <path d="M19 9v11l7 4" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+        <circle cx="19" cy="19" r="2.5" fill="white"/>
+      </svg>
+    </div>
+    <h1>ICMR Smart Navigation</h1>
+    <p>AR-guided indoor navigation • ICMR HQ</p>
+  </div>
+
+  <div class="home-card">
+    <h2>Where do you need to go?</h2>
+    <p class="card-sub">Select your destination below</p>
+
+    <button class="dest-btn" onclick="selectDest()">
+      <div class="dest-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+      </div>
+      <div class="dest-info">
+        <div class="dest-name">Dr. Nilesh Chandra</div>
+        <div class="dest-room">Room 120-A &nbsp;·&nbsp; North Corridor, Ground Floor</div>
+      </div>
+      <div class="dest-chevron">›</div>
+    </button>
+
+    <div class="tip-box">
+      📍 <strong>Before you start:</strong> Stand at the <strong>main entrance gate</strong> of the ICMR building and point your camera at <strong>Marker A</strong> on the wall to begin.
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════ -->
+<!-- SCREEN 2 — LOADING AR ENGINE   -->
+<!-- ═══════════════════════════════ -->
+<div id="s-loading" class="screen">
+  <div class="spinner"></div>
+  <h2>Starting AR Camera…</h2>
+  <p>Point your camera at <strong>Marker A</strong> at the entrance to begin navigation.</p>
+</div>
+
+<!-- ═══════════════════════════════ -->
+<!-- SCREEN 3 — AR SCENE            -->
+<!-- ═══════════════════════════════ -->
+<div id="s-ar" class="screen">
+
+  <!-- MindAR A-Frame scene -->
+  <!-- imageTargetSrc points to targets.mind which you will generate -->
+  <a-scene id="ar-scene"
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiLoading: no; uiError: no; uiScanning: no; filterMinCF: 0.001; filterBeta: 100; warmupTolerance: 3; missTolerance: 10"
+    color-space="sRGB"
+    renderer="colorManagement: true; physicallyCorrectLights: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false">
+
+    <a-assets></a-assets>
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+    <!-- ── MARKER A: Entrance → points FORWARD (straight arrow) ── -->
+    <a-entity id="target-A" mindar-image-target="targetIndex: 0">
+      <!-- Arrow shaft pointing forward (+Z = away from marker = into corridor) -->
+      <!-- 3D arrow: shaft -->
+      <a-cylinder color="#00C49A" position="0 0.3 -0.5" radius="0.04" height="0.7" rotation="90 0 0"></a-cylinder>
+      <!-- arrowhead cone -->
+      <a-cone color="#00C49A" position="0 0.3 -0.9" radius-bottom="0.12" radius-top="0" height="0.25" rotation="90 0 0"></a-cone>
+      <!-- Pulse ring -->
+      <a-torus color="#00C49A" position="0 0.3 -0.5" radius="0.22" radius-tubular="0.015"
+        animation="property: scale; from: 1 1 1; to: 1.4 1.4 1.4; loop: true; dur: 900; easing: easeInOutSine; dir: alternate">
+      </a-torus>
+      <!-- Label -->
+      <a-text value="WALK STRAIGHT" position="0 0.7 -0.5" align="center" color="#FFFFFF"
+        width="2.5" font="mozillavr"
+        geometry="primitive: plane; width: 1.4; height: 0.28" material="color: #003580; opacity: 0.8">
+      </a-text>
+      <a-text value="Follow corridor to Reception" position="0 0.45 -0.5" align="center" color="#00C49A" width="2" font="mozillavr"></a-text>
+    </a-entity>
+
+    <!-- ── MARKER B: Corridor entry → STRAIGHT AGAIN ── -->
+    <a-entity id="target-B" mindar-image-target="targetIndex: 1">
+      <a-cylinder color="#00C49A" position="0 0.3 -0.5" radius="0.04" height="0.7" rotation="90 0 0"></a-cylinder>
+      <a-cone color="#00C49A" position="0 0.3 -0.9" radius-bottom="0.12" radius-top="0" height="0.25" rotation="90 0 0"></a-cone>
+      <a-torus color="#00C49A" position="0 0.3 -0.5" radius="0.22" radius-tubular="0.015"
+        animation="property: scale; from: 1 1 1; to: 1.4 1.4 1.4; loop: true; dur: 900; easing: easeInOutSine; dir: alternate">
+      </a-torus>
+      <a-text value="CONTINUE STRAIGHT" position="0 0.7 -0.5" align="center" color="#FFFFFF" width="2.5" font="mozillavr"
+        geometry="primitive: plane; width: 1.6; height: 0.28" material="color: #003580; opacity: 0.8">
+      </a-text>
+      <a-text value="Walk 21m to end of corridor" position="0 0.45 -0.5" align="center" color="#00C49A" width="2" font="mozillavr"></a-text>
+    </a-entity>
+
+    <!-- ── MARKER C: End of corridor → TURN RIGHT ── -->
+    <a-entity id="target-C" mindar-image-target="targetIndex: 2">
+      <!-- RIGHT turn arrow: shaft goes right (+X axis) -->
+      <a-cylinder color="#FFAA00" position="0.4 0.3 -0.3" radius="0.05" height="0.7" rotation="0 0 90"></a-cylinder>
+      <a-cone color="#FFAA00" position="0.8 0.3 -0.3" radius-bottom="0.13" radius-top="0" height="0.28" rotation="0 0 -90"></a-cone>
+      <!-- Pulse ring -->
+      <a-torus color="#FFAA00" position="0.4 0.3 -0.3" radius="0.24" radius-tubular="0.018"
+        animation="property: scale; from: 1 1 1; to: 1.5 1.5 1.5; loop: true; dur: 700; easing: easeInOutSine; dir: alternate">
+      </a-torus>
+      <a-text value="TURN RIGHT →" position="0.4 0.7 -0.3" align="center" color="#FFAA00" width="2.5" font="mozillavr"
+        geometry="primitive: plane; width: 1.4; height: 0.28" material="color: #1A1A00; opacity: 0.85">
+      </a-text>
+      <a-text value="Room 120-A is 6m on your LEFT" position="0.4 0.45 -0.3" align="center" color="#FFFFFF" width="2.2" font="mozillavr"></a-text>
+      <!-- Destination label floating further right -->
+      <a-plane position="1.2 0.5 -0.3" width="1.6" height="0.55" color="#003580" opacity="0.9"></a-plane>
+      <a-text value="Dr. Nilesh Chandra" position="1.2 0.62 -0.28" align="center" color="#FFFFFF" width="2.2" font="mozillavr"></a-text>
+      <a-text value="Room 120-A" position="1.2 0.42 -0.28" align="center" color="#00C49A" width="2" font="mozillavr"></a-text>
+    </a-entity>
+
+  </a-scene>
+
+  <!-- HUD overlay -->
+  <div id="hud">
+    <div id="hud-top">
+      <div id="step-label">Step 1 of 3</div>
+      <div id="step-instr">Point camera at Marker A</div>
+      <div id="dist-pill">📍 <span id="dist-text">At entrance gate</span></div>
+    </div>
+
+    <div id="detect-flash">
+      <p id="flash-title">Marker Detected ✓</p>
+      <span id="flash-sub">Follow the AR arrows</span>
+    </div>
+
+    <div id="hud-bottom">
+      <div id="prog-dots">
+        <div class="dot active" id="dot-0"></div>
+        <div class="dot" id="dot-1"></div>
+        <div class="dot" id="dot-2"></div>
+      </div>
+      <div id="scan-prompt">
+        <p id="prompt-main">Scan Marker A at the entrance</p>
+        <span id="prompt-sub">Point your camera at the printed marker on the wall</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════ -->
+<!-- SCREEN 4 — ARRIVED             -->
+<!-- ═══════════════════════════════ -->
+<div id="s-arrived" class="screen">
+  <div class="arrived-icon">
+    <svg viewBox="0 0 52 52" fill="none" stroke="#00C49A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 27l9 9 16-18"/>
+      <circle cx="26" cy="26" r="22" stroke-opacity="0.35"/>
+    </svg>
+  </div>
+  <h2>You have arrived!</h2>
+  <div class="arr-name">Dr. Nilesh Chandra</div>
+  <div class="arr-room">Room 120-A &nbsp;·&nbsp; North Corridor</div>
+  <p class="arr-sub">The room is on your left side.<br>Please check in at the counter.</p>
+  <button class="btn-restart" onclick="restart()">↩ Back to Home</button>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+// NAV STATE
+// ═══════════════════════════════════════════
+const STEPS = [
+  { label:'Step 1 of 3', instr:'Walk straight to Reception', dist:'~10m — entrance to reception', prompt:'Scan Marker A at the entrance', promptSub:'Point camera at the green marker on the wall', flash:'Marker A Detected ✓', flashSub:'Walk straight — follow the green arrows' },
+  { label:'Step 2 of 3', instr:'Continue through the corridor', dist:'~21m — reception to corridor end', prompt:'Scan Marker B at corridor entry', promptSub:'Point camera at the blue marker on the wall', flash:'Marker B Detected ✓', flashSub:'Keep walking straight to the end' },
+  { label:'Step 3 of 3', instr:'Turn RIGHT — room is on your LEFT', dist:'~6m after the turn', prompt:'Scan Marker C at end of corridor', promptSub:'Point camera at the red marker on the wall', flash:'Marker C Detected ✓', flashSub:'Turn right — Room 120-A is 6m on your left' }
+];
+
+let currentStep = -1; // -1 = not started
+let arStarted = false;
+
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function selectDest(){
+  showScreen('s-loading');
+  // Small delay to let loading screen render, then init AR
+  setTimeout(initAR, 400);
+}
+
+function initAR(){
+  showScreen('s-ar');
+  currentStep = 0;
+  updateHUD(0);
+
+  if(arStarted) return;
+  arStarted = true;
+
+  const scene = document.getElementById('ar-scene');
+
+  scene.addEventListener('loaded', () => {
+    const sys = scene.systems['mindar-image-system'];
+    if(sys) sys.start();
+  });
+
+  // Listen for each marker found/lost
+  const entA = document.getElementById('target-A');
+  const entB = document.getElementById('target-B');
+  const entC = document.getElementById('target-C');
+
+  entA.addEventListener('targetFound', () => onMarker(0));
+  entB.addEventListener('targetFound', () => onMarker(1));
+  entC.addEventListener('targetFound', () => onMarker(2));
+}
+
+function onMarker(index){
+  // Only advance forward, never backward
+  if(index < currentStep) return;
+  currentStep = index;
+  updateHUD(index);
+  showFlash(STEPS[index].flash, STEPS[index].flashSub);
+
+  // If last marker — wait 3s then show arrived screen
+  if(index === 2){
+    setTimeout(()=>{ showScreen('s-arrived'); }, 4000);
+  }
+}
+
+function updateHUD(idx){
+  const s = STEPS[idx];
+  document.getElementById('step-label').textContent  = s.label;
+  document.getElementById('step-instr').textContent  = s.instr;
+  document.getElementById('dist-text').textContent   = s.dist;
+  document.getElementById('prompt-main').textContent = s.prompt;
+  document.getElementById('prompt-sub').textContent  = s.promptSub;
+
+  // Dots
+  for(let i=0;i<3;i++){
+    const d = document.getElementById('dot-'+i);
+    d.className = 'dot' + (i<idx?' done':i===idx?' active':'');
+  }
+}
+
+function showFlash(title, sub){
+  const f = document.getElementById('detect-flash');
+  document.getElementById('flash-title').textContent = title;
+  document.getElementById('flash-sub').textContent   = sub;
+  f.classList.add('show');
+  setTimeout(()=>f.classList.remove('show'), 2800);
+}
+
+function restart(){
+  currentStep = -1;
+  showScreen('s-home');
+}
+</script>
+</body>
+</html>
