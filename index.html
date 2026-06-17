@@ -5,9 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
   <title>ICMR Smart Navigation</title>
 
-  <!-- MindAR + A-Frame — correct CDN links -->
-  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <!-- MindAR + Three.js direct integration (no A-Frame layer — more reliable camera rendering) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+      "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+    }
+  }
+  </script>
 
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
@@ -76,23 +83,12 @@
     #s-loading p{font-size:14px;color:rgba(255,255,255,.7);max-width:280px;line-height:1.5;}
 
     /* ── AR SCENE WRAPPER ── */
-    #s-ar{position:relative;background:#000;width:100%;height:100dvh;}
-
-    /* MindAR injects a <video> + <canvas> directly into the body/scene container.
-       Force them to be visible, full-screen, and behind the HUD. */
-    #s-ar video{
+    #s-ar{position:relative;background:#000;width:100%;height:100dvh;overflow:hidden;}
+    #ar-container{position:absolute;inset:0;width:100%;height:100%;}
+    /* MindARThree places its own <video> and <canvas> inside #ar-container, stacked correctly by default */
+    #ar-container video, #ar-container canvas{
       position:absolute !important; top:0 !important; left:0 !important;
-      width:100% !important; height:100% !important;
-      object-fit:cover !important; z-index:1 !important; display:block !important;
-    }
-    #s-ar a-scene{
-      position:absolute !important; inset:0 !important;
-      width:100% !important; height:100% !important; z-index:2 !important;
-    }
-    #s-ar a-scene canvas{
-      position:absolute !important; top:0 !important; left:0 !important;
-      width:100% !important; height:100% !important; z-index:2 !important;
-      background:transparent !important;
+      width:100% !important; height:100% !important; object-fit:cover !important;
     }
 
     /* HUD overlay sits above the A-Frame canvas */
@@ -149,6 +145,40 @@
   </style>
 </head>
 <body>
+
+<script>
+  // ── Defined immediately (classic script, not a module) so these
+  // buttons NEVER fail even if the AR module below has any load issue. ──
+  function showScreen(id){
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+  function selectDest(){
+    showScreen('s-perm');
+  }
+  async function requestCameraAndStart(){
+    try {
+      const testStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false
+      });
+      testStream.getTracks().forEach(t => t.stop());
+      showScreen('s-loading');
+      setTimeout(() => {
+        if (window.initAR) { window.initAR(); }
+        else {
+          alert('AR engine failed to load. Please check your internet connection and reload the page.');
+          showScreen('s-perm');
+        }
+      }, 400);
+    } catch(err) {
+      alert('Camera access was denied.\n\nTo fix this:\n1. Tap the camera icon in your browser address bar\n2. Select "Allow"\n3. Refresh the page and try again.');
+    }
+  }
+  function restart(){
+    showScreen('s-home');
+  }
+</script>
 
 <!-- ═══════════════════════════════ -->
 <!-- SCREEN 1 — HOME / DESTINATION  -->
@@ -225,70 +255,8 @@
 <!-- ═══════════════════════════════ -->
 <div id="s-ar" class="screen">
 
-  <!-- MindAR A-Frame scene -->
-  <!-- imageTargetSrc points to targets.mind which you will generate -->
-  <a-scene id="ar-scene"
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiLoading: no; uiError: no; uiScanning: no; filterMinCF: 0.001; filterBeta: 100; warmupTolerance: 3; missTolerance: 10"
-    color-space="sRGB"
-    renderer="colorManagement: true; physicallyCorrectLights: true"
-    vr-mode-ui="enabled: false"
-    device-orientation-permission-ui="enabled: false">
-
-    <a-assets></a-assets>
-    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-
-    <!-- ── MARKER A: Entrance → points FORWARD (straight arrow) ── -->
-    <a-entity id="target-A" mindar-image-target="targetIndex: 0">
-      <!-- Arrow shaft pointing forward (+Z = away from marker = into corridor) -->
-      <!-- 3D arrow: shaft -->
-      <a-cylinder color="#00C49A" position="0 0.3 -0.5" radius="0.04" height="0.7" rotation="90 0 0"></a-cylinder>
-      <!-- arrowhead cone -->
-      <a-cone color="#00C49A" position="0 0.3 -0.9" radius-bottom="0.12" radius-top="0" height="0.25" rotation="90 0 0"></a-cone>
-      <!-- Pulse ring -->
-      <a-torus color="#00C49A" position="0 0.3 -0.5" radius="0.22" radius-tubular="0.015"
-        animation="property: scale; from: 1 1 1; to: 1.4 1.4 1.4; loop: true; dur: 900; easing: easeInOutSine; dir: alternate">
-      </a-torus>
-      <!-- Label -->
-      <a-text value="WALK STRAIGHT" position="0 0.7 -0.5" align="center" color="#FFFFFF"
-        width="2.5" font="mozillavr"
-        geometry="primitive: plane; width: 1.4; height: 0.28" material="color: #003580; opacity: 0.8">
-      </a-text>
-      <a-text value="Follow corridor to Reception" position="0 0.45 -0.5" align="center" color="#00C49A" width="2" font="mozillavr"></a-text>
-    </a-entity>
-
-    <!-- ── MARKER B: Corridor entry → STRAIGHT AGAIN ── -->
-    <a-entity id="target-B" mindar-image-target="targetIndex: 1">
-      <a-cylinder color="#00C49A" position="0 0.3 -0.5" radius="0.04" height="0.7" rotation="90 0 0"></a-cylinder>
-      <a-cone color="#00C49A" position="0 0.3 -0.9" radius-bottom="0.12" radius-top="0" height="0.25" rotation="90 0 0"></a-cone>
-      <a-torus color="#00C49A" position="0 0.3 -0.5" radius="0.22" radius-tubular="0.015"
-        animation="property: scale; from: 1 1 1; to: 1.4 1.4 1.4; loop: true; dur: 900; easing: easeInOutSine; dir: alternate">
-      </a-torus>
-      <a-text value="CONTINUE STRAIGHT" position="0 0.7 -0.5" align="center" color="#FFFFFF" width="2.5" font="mozillavr"
-        geometry="primitive: plane; width: 1.6; height: 0.28" material="color: #003580; opacity: 0.8">
-      </a-text>
-      <a-text value="Walk 21m to end of corridor" position="0 0.45 -0.5" align="center" color="#00C49A" width="2" font="mozillavr"></a-text>
-    </a-entity>
-
-    <!-- ── MARKER C: End of corridor → TURN RIGHT ── -->
-    <a-entity id="target-C" mindar-image-target="targetIndex: 2">
-      <!-- RIGHT turn arrow: shaft goes right (+X axis) -->
-      <a-cylinder color="#FFAA00" position="0.4 0.3 -0.3" radius="0.05" height="0.7" rotation="0 0 90"></a-cylinder>
-      <a-cone color="#FFAA00" position="0.8 0.3 -0.3" radius-bottom="0.13" radius-top="0" height="0.28" rotation="0 0 -90"></a-cone>
-      <!-- Pulse ring -->
-      <a-torus color="#FFAA00" position="0.4 0.3 -0.3" radius="0.24" radius-tubular="0.018"
-        animation="property: scale; from: 1 1 1; to: 1.5 1.5 1.5; loop: true; dur: 700; easing: easeInOutSine; dir: alternate">
-      </a-torus>
-      <a-text value="TURN RIGHT →" position="0.4 0.7 -0.3" align="center" color="#FFAA00" width="2.5" font="mozillavr"
-        geometry="primitive: plane; width: 1.4; height: 0.28" material="color: #1A1A00; opacity: 0.85">
-      </a-text>
-      <a-text value="Room 120-A is 6m on your LEFT" position="0.4 0.45 -0.3" align="center" color="#FFFFFF" width="2.2" font="mozillavr"></a-text>
-      <!-- Destination label floating further right -->
-      <a-plane position="1.2 0.5 -0.3" width="1.6" height="0.55" color="#003580" opacity="0.9"></a-plane>
-      <a-text value="Dr. Nilesh Chandra" position="1.2 0.62 -0.28" align="center" color="#FFFFFF" width="2.2" font="mozillavr"></a-text>
-      <a-text value="Room 120-A" position="1.2 0.42 -0.28" align="center" color="#00C49A" width="2" font="mozillavr"></a-text>
-    </a-entity>
-
-  </a-scene>
+  <!-- MindARThree will inject its own video + canvas into this container -->
+  <div id="ar-container"></div>
 
   <!-- HUD overlay -->
   <div id="hud">
@@ -334,7 +302,10 @@
   <button class="btn-restart" onclick="restart()">↩ Back to Home</button>
 </div>
 
-<script>
+<script type="module">
+import * as THREE from "three";
+import { MindARThree } from "mindar-image-three";
+
 // ═══════════════════════════════════════════
 // NAV STATE
 // ═══════════════════════════════════════════
@@ -346,40 +317,11 @@ const STEPS = [
 
 let currentStep = -1;
 let arStarted = false;
+let mindarThree = null;
 
-function showScreen(id){
-  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-}
-
-// Step 1: user taps destination → show camera permission screen
-function selectDest(){
-  showScreen('s-perm');
-}
-
-// Step 2: user taps "Allow Camera" → explicitly request camera permission
-async function requestCameraAndStart(){
-  try {
-    // This triggers the browser's native "Allow camera?" popup
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } },
-      audio: false
-    });
-    // Permission granted — stop this test stream (MindAR will open its own)
-    stream.getTracks().forEach(t => t.stop());
-
-    // Show loading screen while MindAR initialises
-    showScreen('s-loading');
-    setTimeout(initAR, 500);
-
-  } catch(err) {
-    // Permission denied
-    alert('Camera access was denied.\n\nTo fix this:\n1. Tap the camera icon in your browser address bar\n2. Select "Allow"\n3. Refresh the page and try again.');
-  }
-}
-
-// Step 3: start MindAR scene
-function initAR(){
+// Step 3: start MindAR (Three.js) — this manages camera + canvas internally and reliably
+// Exposed on window so the classic script above (which owns button clicks) can call it.
+window.initAR = async function(){
   showScreen('s-ar');
   currentStep = 0;
   updateHUD(0);
@@ -387,66 +329,145 @@ function initAR(){
   if(arStarted) return;
   arStarted = true;
 
-  const scene = document.getElementById('ar-scene');
-
-  // Start MindAR after scene loads
-  scene.addEventListener('loaded', () => {
-    const sys = scene.systems['mindar-image-system'];
-    if(sys) sys.start();
-    // Safety net: force-fix the video element MindAR injects,
-    // in case CSS alone doesn't override its inline styles.
-    fixVideoVisibility();
+  mindarThree = new MindARThree({
+    container: document.querySelector("#ar-container"),
+    imageTargetSrc: "./targets.mind",
+    filterMinCF: 0.0001,
+    filterBeta: 1000,
+    warmupTolerance: 2,
+    missTolerance: 5
   });
 
-  // Listen for each marker detection
-  const entA = document.getElementById('target-A');
-  const entB = document.getElementById('target-B');
-  const entC = document.getElementById('target-C');
+  const { renderer, scene, camera } = mindarThree;
 
-  entA.addEventListener('targetFound', () => onMarker(0));
-  entB.addEventListener('targetFound', () => onMarker(1));
-  entC.addEventListener('targetFound', () => onMarker(2));
+  // ── Build the 3 anchors (one per marker) ──
+  const anchorA = mindarThree.addAnchor(0); // Marker A — entrance
+  const anchorB = mindarThree.addAnchor(1); // Marker B — corridor entry
+  const anchorC = mindarThree.addAnchor(2); // Marker C — end of corridor / turn
+
+  anchorA.group.add(buildStraightArrowGroup("WALK STRAIGHT", "Follow corridor to Reception", 0x00C49A));
+  anchorB.group.add(buildStraightArrowGroup("CONTINUE STRAIGHT", "Walk 21m to end of corridor", 0x00C49A));
+  anchorC.group.add(buildTurnArrowGroup());
+
+  // ── Track marker visibility to fire step transitions ──
+  anchorA.onTargetFound = () => { onMarker(0); };
+  anchorB.onTargetFound = () => { onMarker(1); };
+  anchorC.onTargetFound = () => { onMarker(2); };
+
+  // Simple ambient light so 3D shapes are visible (not pure black materials)
+  const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.6);
+  scene.add(light);
+
+  await mindarThree.start();
+
+  renderer.setAnimationLoop(() => {
+    renderer.render(scene, camera);
+  });
+};
+
+// ── Build a forward-pointing arrow + label, used for Marker A and B ──
+function buildStraightArrowGroup(titleText, subText, colorHex){
+  const group = new THREE.Group();
+
+  const mat = new THREE.MeshBasicMaterial({ color: colorHex });
+
+  // Shaft
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.7, 16), mat);
+  shaft.position.set(0, 0.3, -0.5);
+  shaft.rotation.x = Math.PI / 2;
+  group.add(shaft);
+
+  // Arrowhead (cone) — pointing further away from the marker (into the corridor)
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.25, 16), mat);
+  head.position.set(0, 0.3, -0.9);
+  head.rotation.x = Math.PI / 2;
+  group.add(head);
+
+  // Pulsing ring
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.015, 8, 32), mat);
+  ring.position.set(0, 0.3, -0.5);
+  group.add(ring);
+  animatePulse(ring);
+
+  // Title label (canvas texture plane)
+  group.add(makeTextPlane(titleText, 1.4, 0.28, "#003580", "#FFFFFF", 0, 0.72, -0.5));
+  group.add(makeTextPlane(subText, 1.8, 0.22, "rgba(0,0,0,0)", colorHex===0x00C49A?"#00C49A":"#FFFFFF", 0, 0.45, -0.5, true));
+
+  return group;
 }
 
-// MindAR injects <video> (and sometimes a wrapping div) directly into
-// the #s-ar container with its own inline styles. Some Android/Chrome
-// combos keep it at opacity 0 / z-index behind the canvas. This polls
-// for a few seconds and forcibly fixes any video element found.
-function fixVideoVisibility(){
-  let attempts = 0;
-  const maxAttempts = 30; // ~9 seconds
-  const interval = setInterval(() => {
-    attempts++;
-    const arContainer = document.getElementById('s-ar');
-    const videos = arContainer.querySelectorAll('video');
-    videos.forEach(v => {
-      v.style.setProperty('position', 'absolute', 'important');
-      v.style.setProperty('top', '0', 'important');
-      v.style.setProperty('left', '0', 'important');
-      v.style.setProperty('width', '100%', 'important');
-      v.style.setProperty('height', '100%', 'important');
-      v.style.setProperty('object-fit', 'cover', 'important');
-      v.style.setProperty('opacity', '1', 'important');
-      v.style.setProperty('z-index', '1', 'important');
-      v.style.setProperty('display', 'block', 'important');
-      v.style.setProperty('visibility', 'visible', 'important');
-      // Ensure it's actually playing
-      if(v.paused) v.play().catch(()=>{});
-    });
-    if(videos.length > 0 || attempts >= maxAttempts){
-      clearInterval(interval);
-    }
-  }, 300);
+// ── Build the right-turn arrow + destination label, used for Marker C ──
+function buildTurnArrowGroup(){
+  const group = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xFFAA00 });
+
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.7, 16), mat);
+  shaft.position.set(0.4, 0.3, -0.3);
+  shaft.rotation.z = Math.PI / 2;
+  group.add(shaft);
+
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.28, 16), mat);
+  head.position.set(0.8, 0.3, -0.3);
+  head.rotation.z = -Math.PI / 2;
+  group.add(head);
+
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.018, 8, 32), mat);
+  ring.position.set(0.4, 0.3, -0.3);
+  group.add(ring);
+  animatePulse(ring);
+
+  group.add(makeTextPlane("TURN RIGHT →", 1.4, 0.28, "#1A1A00", "#FFAA00", 0.4, 0.72, -0.3));
+  group.add(makeTextPlane("Room 120-A is 6m on your LEFT", 2.0, 0.24, "rgba(0,0,0,0)", "#FFFFFF", 0.4, 0.45, -0.3, true));
+
+  // Destination card further along
+  group.add(makeTextPlane("Dr. Nilesh Chandra", 1.6, 0.28, "#003580", "#FFFFFF", 1.2, 0.62, -0.3));
+  group.add(makeTextPlane("Room 120-A", 1.6, 0.24, "#003580", "#00C49A", 1.2, 0.38, -0.3));
+
+  return group;
+}
+
+// Utility: pulsing scale animation for the ring meshes
+function animatePulse(mesh){
+  let t = 0;
+  function tick(){
+    t += 0.04;
+    const s = 1 + 0.25 * Math.sin(t);
+    mesh.scale.set(s, s, 1);
+    requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+// Utility: render text onto a canvas, use it as a textured plane in 3D space
+function makeTextPlane(text, w, h, bgColor, textColor, x, y, z, transparentBg){
+  const canvas = document.createElement('canvas');
+  canvas.width = 512; canvas.height = Math.round(512 * (h/w));
+  const ctx = canvas.getContext('2d');
+
+  if(!transparentBg){
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
+  ctx.fillStyle = textColor;
+  ctx.font = "bold 54px Segoe UI, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, canvas.width/2, canvas.height/2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  const mat = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+  plane.position.set(x, y, z);
+  return plane;
 }
 
 function onMarker(index){
-  // Only advance forward, never backward
   if(index < currentStep) return;
   currentStep = index;
   updateHUD(index);
   showFlash(STEPS[index].flash, STEPS[index].flashSub);
 
-  // If last marker — wait 3s then show arrived screen
   if(index === 2){
     setTimeout(()=>{ showScreen('s-arrived'); }, 4000);
   }
@@ -460,7 +481,6 @@ function updateHUD(idx){
   document.getElementById('prompt-main').textContent = s.prompt;
   document.getElementById('prompt-sub').textContent  = s.promptSub;
 
-  // Dots
   for(let i=0;i<3;i++){
     const d = document.getElementById('dot-'+i);
     d.className = 'dot' + (i<idx?' done':i===idx?' active':'');
@@ -475,10 +495,8 @@ function showFlash(title, sub){
   setTimeout(()=>f.classList.remove('show'), 2800);
 }
 
-function restart(){
-  currentStep = -1;
-  showScreen('s-home');
-}
+// Note: restart() is defined in the classic script above the AR module,
+// so the Home button always works even before this module finishes loading.
 </script>
 </body>
 </html>
